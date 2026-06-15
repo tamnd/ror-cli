@@ -153,14 +153,14 @@ type wireResponse struct {
 }
 
 type wireOrg struct {
-	ID          string          `json:"id"`
-	Names       []wireName      `json:"names"`
-	Types       []string        `json:"types"`
-	Locations   []wireLocation  `json:"locations"`
-	Established int             `json:"established"`
-	Status      string          `json:"status"`
-	Links       []wireLink      `json:"links"`
-	ExternalIDs []wireExtID     `json:"external_ids"`
+	ID          string         `json:"id"`
+	Names       []wireName     `json:"names"`
+	Types       []string       `json:"types"`
+	Locations   []wireLocation `json:"locations"`
+	Established int            `json:"established"`
+	Status      string         `json:"status"`
+	Links       []wireLink     `json:"links"`
+	ExternalIDs []wireExtID    `json:"external_ids"`
 }
 
 type wireName struct {
