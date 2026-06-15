@@ -58,7 +58,7 @@ nfpms:
     vendor: tamnd
     homepage: https://github.com/tamnd/ror-cli
     maintainer: Duc-Tam Nguyen <tamnd87@gmail.com>
-    description: A command line for ror.
+    description: A command line for the Research Organization Registry.
     license: Apache-2.0
     formats:
       - deb
@@ -82,7 +82,7 @@ dockers_v2:
       - linux/arm64
     labels:
       org.opencontainers.image.title: "{{ .ProjectName }}"
-      org.opencontainers.image.description: "A command line for ror."
+      org.opencontainers.image.description: "A command line for the Research Organization Registry."
       org.opencontainers.image.url: "https://github.com/tamnd/ror-cli"
       org.opencontainers.image.source: "https://github.com/tamnd/ror-cli"
       org.opencontainers.image.version: "{{ .Version }}"
@@ -97,7 +97,7 @@ homebrew_casks:
       token: '{{ envOrDefault "HOMEBREW_TAP_GITHUB_TOKEN" "" }}'
     directory: Casks
     homepage: https://github.com/tamnd/ror-cli
-    description: A command line for ror.
+    description: A command line for the Research Organization Registry.
     skip_upload: '{{ if envOrDefault "HOMEBREW_TAP_GITHUB_TOKEN" "" }}false{{ else }}true{{ end }}'
     commit_author:
       name: Duc-Tam Nguyen
@@ -109,7 +109,7 @@ scoops:
       name: scoop-bucket
       token: '{{ envOrDefault "SCOOP_BUCKET_GITHUB_TOKEN" "" }}'
     homepage: https://github.com/tamnd/ror-cli
-    description: A command line for ror.
+    description: A command line for the Research Organization Registry.
     license: Apache-2.0
     skip_upload: '{{ if envOrDefault "SCOOP_BUCKET_GITHUB_TOKEN" "" }}false{{ else }}true{{ end }}'
     commit_author:

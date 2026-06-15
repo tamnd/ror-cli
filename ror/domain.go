@@ -2,7 +2,7 @@ package ror
 
 import (
 	"context"
-	"net/url"
+	"fmt"
 	"strings"
 
 	"github.com/tamnd/any-cli/kit"
@@ -19,12 +19,9 @@ import (
 // ror:// URIs by routing to the operations Register installs. The same
 // Domain also builds the standalone ror binary (see cli.NewApp), so the
 // binary and a host share one source of truth.
-//
-// This is the scaffold's starting point: one resource type, "page", served by a
-// resolver op and a list op. Add your real types here as you model the site.
 func init() { kit.Register(Domain{}) }
 
-// Domain is the ror driver. It carries no state; the per-run client is
+// Domain is the ROR driver. It carries no state; the per-run client is
 // built by the factory Register hands kit.
 type Domain struct{}
 
@@ -36,40 +33,51 @@ func (Domain) Info() kit.DomainInfo {
 		Hosts:  []string{Host},
 		Identity: kit.Identity{
 			Binary: "ror",
-			Short:  "A command line for ror.",
-			Long: `A command line for ror.
+			Short:  "A command line for the Research Organization Registry.",
+			Long: `A command line for the Research Organization Registry (ROR).
 
-ror reads public ror data over plain HTTPS, shapes it into
+ror reads public ROR data over plain HTTPS, shapes it into
 clean records, and prints output that pipes into the rest of your tools. No API
 key, nothing to run alongside it.`,
-			Site: Host,
+			Site: "ror.org",
 			Repo: "https://github.com/tamnd/ror-cli",
 		},
 	}
 }
 
-// Register installs the client factory and every operation onto app. A resolver
-// op (Single) names its own record type and answers `ant get`; a List op
-// enumerates a parent resource's members and answers `ant ls`.
+// Register installs the client factory and every operation onto app.
 func (Domain) Register(app *kit.App) {
 	app.SetClient(newClient)
 
-	// Resolver op: one record per id, the home of `ror page` and
-	// `ant get ror://page/<id>`.
-	kit.Handle(app, kit.OpMeta{Name: "page", Group: "read", Single: true,
-		Summary: "Fetch a page by path or URL", URIType: "page", Resolver: true,
-		Args: []kit.Arg{{Name: "ref", Help: "page path or URL"}}}, getPage)
+	// search: query by name.
+	kit.Handle(app, kit.OpMeta{
+		Name:    "search",
+		Group:   "read",
+		Summary: "Search organizations by name",
+		Args:    []kit.Arg{{Name: "query", Help: "search term"}},
+	}, searchOrgs)
 
-	// List op: members of a page, the home of `ror links` and `ant ls`.
-	// It emits page stubs, so every listed member is itself an addressable
-	// ror://page/ URI a host can follow.
-	kit.Handle(app, kit.OpMeta{Name: "links", Group: "read", List: true,
-		Summary: "List the pages a page links to", URIType: "page",
-		Args: []kit.Arg{{Name: "ref", Help: "page path or URL"}}}, listLinks)
+	// filter: filter by type, country, etc.
+	kit.Handle(app, kit.OpMeta{
+		Name:    "filter",
+		Group:   "read",
+		Summary: "Filter organizations (e.g. types:Education)",
+		Args:    []kit.Arg{{Name: "filter", Help: "filter expression, e.g. types:Healthcare"}},
+	}, filterOrgs)
+
+	// org: fetch a single organization by ROR ID.
+	kit.Handle(app, kit.OpMeta{
+		Name:     "org",
+		Group:    "read",
+		Single:   true,
+		Summary:  "Fetch an organization by ROR ID",
+		URIType:  "org",
+		Resolver: true,
+		Args:     []kit.Arg{{Name: "id", Help: "ROR ID, e.g. 00f54p054 or https://ror.org/00f54p054"}},
+	}, getOrg)
 }
 
-// newClient builds the client from the host-resolved config, so a host and the
-// standalone binary pace and identify themselves the same way.
+// newClient builds the client from the host-resolved config.
 func newClient(_ context.Context, cfg kit.Config) (any, error) {
 	c := NewClient()
 	if cfg.UserAgent != "" {
@@ -88,86 +96,92 @@ func newClient(_ context.Context, cfg kit.Config) (any, error) {
 }
 
 // --- inputs ---
-//
-// Each handler takes a typed input struct. kit fills the fields from the tags:
-// kit:"arg" is a positional argument, kit:"flag,inherit" binds the framework's
-// shared flag of the same name, and kit:"inject" receives the client newClient
-// builds.
 
-type pageRef struct {
-	Ref    string  `kit:"arg" help:"page path or URL"`
+type searchInput struct {
+	Query  string  `kit:"arg" help:"search term"`
+	Page   int     `kit:"flag" help:"page number (1-based)"`
 	Client *Client `kit:"inject"`
 }
 
-type listRef struct {
-	Ref    string  `kit:"arg" help:"page path or URL"`
-	Limit  int     `kit:"flag,inherit" help:"max results"`
+type filterInput struct {
+	Filter string  `kit:"arg" help:"filter expression, e.g. types:Healthcare"`
+	Page   int     `kit:"flag" help:"page number (1-based)"`
+	Client *Client `kit:"inject"`
+}
+
+type orgInput struct {
+	ID     string  `kit:"arg" help:"ROR ID or URL"`
 	Client *Client `kit:"inject"`
 }
 
 // --- handlers ---
 
-func getPage(ctx context.Context, in pageRef, emit func(*Page) error) error {
-	p, err := in.Client.GetPage(ctx, pagePath(in.Ref))
+func searchOrgs(ctx context.Context, in searchInput, emit func(*Org) error) error {
+	page := in.Page
+	if page < 1 {
+		page = 1
+	}
+	orgs, total, err := in.Client.SearchOrgs(ctx, in.Query, page)
 	if err != nil {
 		return mapErr(err)
 	}
-	return emit(p)
-}
-
-func listLinks(ctx context.Context, in listRef, emit func(*Page) error) error {
-	pages, err := in.Client.PageLinks(ctx, pagePath(in.Ref), in.Limit)
-	if err != nil {
-		return mapErr(err)
-	}
-	for _, p := range pages {
-		if err := emit(p); err != nil {
+	_ = total
+	for i := range orgs {
+		if err := emit(&orgs[i]); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+func filterOrgs(ctx context.Context, in filterInput, emit func(*Org) error) error {
+	page := in.Page
+	if page < 1 {
+		page = 1
+	}
+	orgs, total, err := in.Client.FilterOrgs(ctx, in.Filter, page)
+	if err != nil {
+		return mapErr(err)
+	}
+	_ = total
+	for i := range orgs {
+		if err := emit(&orgs[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func getOrg(ctx context.Context, in orgInput, emit func(*Org) error) error {
+	org, err := in.Client.GetOrg(ctx, in.ID)
+	if err != nil {
+		return mapErr(err)
+	}
+	return emit(org)
+}
+
 // --- Resolver: the URI-native string functions, pure and network-free ---
 
-// Classify turns any accepted input — a bare path or a full ror.com URL —
-// into the canonical (type, id), so `ant resolve` and `ant url` touch no network.
+// Classify turns any accepted input into the canonical (type, id).
 func (Domain) Classify(input string) (uriType, id string, err error) {
-	id = pagePath(input)
+	id = stripRORPrefix(input)
 	if id == "" {
-		return "", "", errs.Usage("unrecognized ror reference: %q", input)
+		return "", "", errs.Usage("unrecognized ROR reference: %q", input)
 	}
-	return "page", id, nil
+	return "org", id, nil
 }
 
 // Locate is the inverse: the live https URL for a (type, id).
 func (Domain) Locate(uriType, id string) (string, error) {
-	if uriType != "page" {
+	if uriType != "org" {
 		return "", errs.Usage("ror has no resource type %q", uriType)
 	}
-	return BaseURL + "/" + strings.Trim(id, "/"), nil
-}
-
-// --- helpers ---
-
-// pagePath turns any accepted input into the canonical page id: the path of a
-// full URL on this host, or a bare path with its slashes trimmed.
-func pagePath(input string) string {
-	input = strings.TrimSpace(input)
-	if u, err := url.Parse(input); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
-		return strings.Trim(u.Path, "/")
-	}
-	return strings.Trim(input, "/")
+	id = stripRORPrefix(id)
+	return fmt.Sprintf("https://ror.org/%s", strings.Trim(id, "/")), nil
 }
 
 // mapErr converts a library error into the kit error kind that carries the right
-// exit code, so a host renders the same outcomes the standalone binary does. As
-// you add sentinel errors to the library, map them here, for example:
-//
-//	case errors.Is(err, ErrNotFound):
-//		return errs.NotFound("%s", err.Error())
-//	case errors.Is(err, ErrRateLimited):
-//		return errs.RateLimited("%s", err.Error())
+// exit code.
 func mapErr(err error) error {
 	return err
 }
