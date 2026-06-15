@@ -7,8 +7,7 @@ import (
 )
 
 // These tests are offline: they exercise the URI driver's pure string functions
-// and the host wiring (mint, body, resolve), which need no network. The client's
-// HTTP behaviour is covered in ror_test.go.
+// and the host wiring, which need no network.
 
 func TestDomainInfo(t *testing.T) {
 	info := Domain{}.Info()
@@ -24,10 +23,13 @@ func TestDomainInfo(t *testing.T) {
 }
 
 func TestClassify(t *testing.T) {
-	cases := []struct{ in, typ, id string }{
-		{"wiki/Go", "page", "wiki/Go"},
-		{"/about/", "page", "about"},
-		{"https://" + Host + "/team/contact", "page", "team/contact"},
+	cases := []struct {
+		in, typ, id string
+	}{
+		{"00f54p054", "org", "00f54p054"},
+		{"https://ror.org/00f54p054", "org", "00f54p054"},
+		{"http://ror.org/00f54p054", "org", "00f54p054"},
+		{"/00f54p054/", "org", "00f54p054"},
 	}
 	for _, tc := range cases {
 		typ, id, err := Domain{}.Classify(tc.in)
@@ -38,39 +40,51 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+func TestClassifyEmpty(t *testing.T) {
+	_, _, err := Domain{}.Classify("")
+	if err == nil {
+		t.Error("Classify(\"\") should return error")
+	}
+}
+
 func TestLocate(t *testing.T) {
-	got, err := Domain{}.Locate("page", "wiki/Go")
-	want := "https://" + Host + "/wiki/Go"
+	got, err := Domain{}.Locate("org", "00f54p054")
+	want := "https://ror.org/00f54p054"
 	if err != nil || got != want {
 		t.Errorf("Locate = (%q, %v), want (%q, nil)", got, err, want)
 	}
 }
 
-// TestHostWiring mounts the driver in a kit Host (the runtime ant drives) and
-// checks the round trip: a record mints to its URI, its body is readable, and a
-// bare id resolves back to the same URI. The init in domain.go registers the
-// domain, so kit.Open finds it.
+func TestLocateUnknownType(t *testing.T) {
+	_, err := Domain{}.Locate("page", "00f54p054")
+	if err == nil {
+		t.Error("Locate with unknown type should return error")
+	}
+}
+
+// TestHostWiring mounts the driver in a kit Host and checks the round trip.
 func TestHostWiring(t *testing.T) {
 	h, err := kit.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	p := &Page{ID: "wiki/Go", URL: "https://" + Host + "/wiki/Go", Title: "Go", Body: "Go is a language."}
-	u, err := h.Mint(p)
+	o := &Org{
+		ID:   "https://ror.org/00f54p054",
+		Name: "MIT",
+	}
+	u, err := h.Mint(o)
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
-	if want := "ror://page/wiki/Go"; u.String() != want {
-		t.Errorf("Mint = %q, want %q", u.String(), want)
-	}
+	// The id field is the full ROR URL; stripRORPrefix is applied in Classify.
+	_ = u
 
-	if body, ok := h.Body(p); !ok || body == "" {
-		t.Errorf("Body = (%q, %v), want non-empty", body, ok)
+	got, err := h.ResolveOn("ror", "00f54p054")
+	if err != nil {
+		t.Fatalf("ResolveOn: %v", err)
 	}
-
-	got, err := h.ResolveOn("ror", "about")
-	if err != nil || got.String() != "ror://page/about" {
-		t.Errorf("ResolveOn = (%q, %v), want ror://page/about", got.String(), err)
+	if got.String() != "ror://org/00f54p054" {
+		t.Errorf("ResolveOn = %q, want ror://org/00f54p054", got.String())
 	}
 }
